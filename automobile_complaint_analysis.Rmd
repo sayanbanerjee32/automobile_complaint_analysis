@@ -1,0 +1,760 @@
+---
+title: "Automobile complaint Analysis"
+author: "Sayan Banerjee"
+date: "August 2, 2017"
+output: html_document
+---
+###Synopsis
+
+save.image(file = "D:/Data Science/Automobile complaint analysis/scripts/auto_comp.RData")  
+load("D:/Data Science/Automobile complaint analysis/scripts/auto_comp.RData") 
+
+"C:/Program Files (x86)/Google/Chrome/Application/chrome.exe" --allow-file-access-from-files file:///D:/Data%20Science/Automobile%20complaint%20analysis/scripts/automobile_complaint_analysis.html
+
+Loading the required packages for the data analysis  
+
+```{r loadpackages, echo=TRUE, results="hide", message=FALSE,warning=FALSE}
+
+library(ggplot2)
+
+library(NLP) 
+library(tm)
+library(slam)
+library(openNLP)
+
+library(RWeka)
+library(cluster)  
+
+library(wordcloud)
+
+library(topicmodels)
+library(Rmpfr)
+
+library(dplyr)
+library(stringi)
+library(corrplot)
+
+library(shiny)
+library(LDAvis)
+library(servr)
+
+library(knitr)
+library(xtable)
+
+```
+
+
+
+```{r setopions, echo=FALSE}
+opts_chunk$set(echo=TRUE, results="asis",cache=TRUE,tidy=FALSE,warning=FALSE)
+```
+
+
+### User defined function
+
+All user defined functions are currently hidden  
+
+```{r define_functions, echo=FALSE}
+
+strtable <- function(df, n=4, width=60, 
+                     n.levels=n, width.levels=width, 
+                     factor.values=as.character) {
+  stopifnot(is.data.frame(df))
+  tab <- data.frame(variable=names(df),
+                    class=rep(as.character(NA), ncol(df)),
+                    levels=rep(as.character(NA), ncol(df)),
+                    examples=rep(as.character(NA), ncol(df)),
+                    stringsAsFactors=FALSE)
+  collapse.values <- function(col, n, width) {
+    result <- NA
+    for(j in 1:min(n, length(col))) {
+      el <- ifelse(is.numeric(col),
+                   paste0(col[1:j], collapse=', '),
+                   paste0('"', col[1:j], '"', collapse=', '))
+      if(nchar(el) <= width) {
+        result <- el
+      } else {
+        break
+      }
+    }
+    if(length(col) > n) {
+      return(paste0(result, ', ...'))
+    } else {
+      return(result)
+    }
+  }
+  
+  for(i in seq_along(df)) {
+    if(is.factor(df[,i])) {
+      tab[i,]$class <- paste0('Factor w/ ', nlevels(df[,i]), ' levels')
+      tab[i,]$levels <- collapse.values(levels(df[,i]), n=n.levels, width=width.levels)
+      tab[i,]$examples <- collapse.values(factor.values(df[,i]), n=n, width=width)
+    } else {
+      tab[i,]$class <- class(df[,i])[1]
+      tab[i,]$examples <- collapse.values(df[,i], n=n, width=width)
+    }
+    
+  }
+  
+  class(tab) <- c('strtable', 'data.frame')
+  return(tab)
+}
+
+#' Prints the results of \code{\link{strtable}}.
+#' @param x result of code \code{\link{strtable}}.
+#' @param ... other parameters passed to \code{\link{print.data.frame}}.
+#' @export
+print.strtable <- function(x, ...) {
+  NextMethod(x, row.names=FALSE, ...)
+}
+
+tagPOS <-  function(x, ...) {
+  s <- as.String(x)
+  word_token_annotator <- Maxent_Word_Token_Annotator()
+  a2 <- Annotation(1L, "sentence", 1L, nchar(s))
+  a2 <- annotate(s, word_token_annotator, a2)
+  a3 <- NLP::annotate(s, Maxent_POS_Tag_Annotator(), a2)
+  a3w <- a3[a3$type == "word"]
+  POStags <- unlist(lapply(a3w$features, `[[`, "POS"))
+  POStagged <- paste(sprintf("%s/%s", s[a3w], POStags), collapse = " ")
+  list(POStagged = POStagged, POStags = POStags)
+}
+annotators <- list(sent_token = Maxent_Sent_Token_Annotator(),
+                   word_token = Maxent_Word_Token_Annotator(),
+                   pos_tag    = Maxent_POS_Tag_Annotator())
+extractPOS <- function(x, POSregex_list, 
+                       POSregex_exclude_list = "",
+                       with_tag = FALSE,
+                       ann = annotators) {
+  #print(paste("extractPOS started: ",Sys.time()))
+  x <- as.String(x)
+  #print(x)
+  wordAnnotation <- NLP::annotate(x, list(ann$sent_token, ann$word_token))
+  #print(paste("Maxent_Sent_Token_Annotator and Maxent_Word_Token_Annotator completed: ",Sys.time()))
+  POSAnnotation <- annotate(x, ann$pos_tag, wordAnnotation)
+  #print(paste("Maxent_POS_Tag_Annotator completed: ",Sys.time()))
+  POSwords <- subset(POSAnnotation, type == "word")
+  tags <- sapply(POSwords$features, '[[', "POS")
+  if(length(POSregex_list) > 0 & nchar(POSregex_list[1]) > 1)
+  {
+    thisPOSindex <- grep(paste(POSregex_list,collapse="|"), tags)
+    if (length(thisPOSindex) > 0)
+    {
+      if(length(POSregex_exclude_list) > 0 & 
+         nchar(POSregex_exclude_list[1]) > 1)
+      {
+        thisPOSindex <- setdiff(thisPOSindex, 
+        grep(paste(POSregex_exclude_list,collapse="|"), tags))
+      }
+      if(with_tag)
+      {
+        tokenizedAndTagged <- sprintf("%s/%s", 
+                                      x[POSwords][thisPOSindex],
+                                      tags[thisPOSindex])
+      } else tokenizedAndTagged <- as.character(x[POSwords])[thisPOSindex]
+    } else tokenizedAndTagged <- ""
+
+  } else {
+    tokenizedAndTagged <- sprintf("%s/%s", x[POSwords], tags)
+  }
+  untokenizedAndTagged <- paste(tokenizedAndTagged, collapse = " ")
+  untokenizedAndTagged
+}
+
+dtm.generate <- function(df,ng,
+                         sparse=1,
+                         spl_sym = "",
+                         my_stop_word_file="",
+                         keep.id=FALSE,
+                         remove_non_english_char = TRUE,
+                         removeNum = TRUE,
+                         removePunc = TRUE,
+                         removeStpWords = TRUE,
+                         doStem = TRUE,
+                         doIDF = TRUE,
+                         doNormTf = TRUE)
+{
+  
+  if (remove_non_english_char)
+  {
+    for(c in 1:ncol(df))
+    {
+    
+      df[,colnames(df)[c]] <- gsub("[^\x20-\x7E]", "",
+                                             df[,colnames(df)[c]])
+    }
+  }
+  if(keep.id == TRUE)
+  {
+    # tutorial on rweka - http://tm.r-forge.r-project.org/faq.html
+     m <- list(id = "ID", content = colnames(df)[2])
+     myReader <- readTabular(mapping = m)
+
+     corpus <- VCorpus(DataframeSource(df), readerControl = list(reader = myReader))
+   
+    # Manually keep ID information from http://stackoverflow.com/a/14852502/1036500
+#       for (i in 1:length(corpus)) {
+#         attr(corpus[[i]], "id") <- df$ID[i]
+#         #corpus[[i]]$meta$ID <- df$ID[i]
+#       }
+  } else
+  {
+    corpus <- Corpus(VectorSource(df[,1])) # create corpus for TM processing
+  }
+  
+  corpus <- tm_map(corpus, content_transformer(tolower))
+  corpus <- tm_map(corpus, stripWhitespace)
+  if (removeStpWords) corpus <- tm_map(corpus, removeWords, 
+                                       c(stopwords("SMART"),stopwords("english")))
+
+  if (removeNum) corpus <- tm_map(corpus, removeNumbers) 
+  if(length(spl_sym) > 0 & sum(nchar(spl_sym)) > 0)
+  {
+    corpus <- tm_map(corpus, content_transformer(gsub), 
+                     pattern = paste(spl_sym,collapse="|"), replacement = " ", fixed=TRUE)
+  }
+  if (removePunc) corpus <- tm_map(corpus, removePunctuation)
+   if (doStem) corpus <- tm_map(corpus, stemDocument)
+  if(my_stop_word_file !="")
+  {
+    content_specific_stop_words <- read.csv(my_stop_word_file,
+                                            header=F,stringsAsFactors = F)
+    corpus <- tm_map(corpus, removeWords, content_specific_stop_words[,1])
+  }
+  #corpus <- tm_map(corpus, PlainTextDocument)
+  if (ng >1)
+  {
+    options(mc.cores=1) # http://stackoverflow.com/questions/17703553/bigrams-instead-of-single-words-in-termdocument-matrix-using-r-and-rweka/20251039#20251039
+    # this stopped working in new server environment
+    #BigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = ng, max = ng)) # create n-grams
+    nGramTokenizer <-
+      function(x)
+        unlist(lapply(ngrams(words(x), ng), paste, collapse = " "), use.names = FALSE)
+    if(doIDF)
+    {
+        dtm <- DocumentTermMatrix(corpus, control = list(tokenize = nGramTokenizer,
+                                                   weighting = function(x)                                                          
+                                                          weightTfIdf(x, normalize = doNormTf))) # create tdm from n-grams
+    } else
+    {
+          dtm <- DocumentTermMatrix(corpus, control = list(tokenize = nGramTokenizer,
+                                                   weighting = weightTf)) # create tdm from n-grams
+    }
+    
+  }
+  else
+  {
+    if(doIDF)
+    {
+        dtm <- DocumentTermMatrix(corpus,control = list(weighting = function(x)                                                          
+                                                            weightTfIdf(x, normalize = doNormTf)))
+    } else
+    {
+      dtm <- DocumentTermMatrix(corpus,control = list(weighting = weightTf))
+    }
+    
+  }
+  if(sparse != 1)
+  {
+    dtms <- removeSparseTerms(dtm, sparse)
+  }
+  else
+  {
+    dtms <- dtm
+  }
+
+  dtms
+}
+
+wf.generate <- function(dtm,
+                        wc_freq,
+                        wc_freq_scale)
+{
+  
+  freq <- sort(colSums(as.matrix(dtm)), decreasing=TRUE) 
+  wf <- data.frame(word=names(freq), freq=freq,stringsAsFactors = FALSE)   
+  
+
+  
+  par(mfrow = c(1, 1))
+  set.seed(142)   
+  wordcloud(names(freq), freq, min.freq=2,max.words=wc_freq, 
+            rot.per=0.15, scale=wc_freq_scale, 
+            random.order=FALSE,
+            colors=brewer.pal(6, "Dark2")) 
+
+  wf
+}
+
+
+harmonicMean <- function(logLikelihoods, precision=2000L) {
+  llMed <- median(logLikelihoods)
+  as.double(llMed - log(mean(exp(-mpfr(logLikelihoods,
+                                       prec = precision) + llMed))))
+}
+
+generate.lda <- function (dtm,topic_start_num = 50,topic_end_num =  100,
+                          topic_num_interval = 5,max_iteration = 6,max_slope_angle=5,
+                          burnin = 1000,iter = 1000,keep = 50)
+{
+  
+  old_coeff <- 0
+  for (i in 1:max_iteration)
+  {
+      sequ <- seq(topic_start_num, topic_end_num, topic_num_interval) # in this case a sequence of numbers from 10 to 50, by 2.
+      
+      set.seed(123)
+      fitted_many <- lapply(sequ, function(k) LDA(dtm, 
+                                                  k = k, 
+                                                  method = "Gibbs",
+                                                  control = list(burnin = burnin, 
+                                                                 iter = iter, 
+                                                                 keep = keep) ))
+      
+      # extract logliks from each topic
+      logLiks_many <- lapply(fitted_many, function(L)  L@logLiks[-c(1:(burnin/keep))])
+      
+      # compute harmonic means
+      hm_many <- sapply(logLiks_many, function(h) harmonicMean(h))
+      
+      # inspect
+      plot(sequ, hm_many, type = "l")
+      lmModel <- lm(hm_many ~ sequ)
+      abline(lmModel,col="blue", lty=2, lwd=2)
+      
+      
+      coeff <- (lmModel$coefficients[2]) /((max(hm_many)-min(hm_many))/(max(sequ)-min(sequ)))
+      print(paste("  \n",Sys.time(),": Iteration ",i," - coefficient: ",coeff,
+                  " - # topics:",sequ[which.max(hm_many)],"  \n"))
+      
+      change_interval <- 0
+      if((sign(old_coeff) != 0) & (sign(coeff) != sign(old_coeff)))
+      {
+        if(topic_num_interval == 1) break 
+        old_start <- topic_start_num
+        old_end <- topic_end_num
+        old_interval <- topic_num_interval
+        change_interval <- 1
+        
+      }else if(coeff > tan(max_slope_angle * pi/180)) ## this means absolute slope angle is greater than a certain value in degree
+      {
+        old_start <- topic_start_num
+        old_end <- topic_end_num
+        if (sequ[which.max(hm_many)] != old_start)
+        {
+          topic_start_num <- sequ[(which.max(hm_many) - 1)]
+        } else break
+        
+        if (topic_start_num < 2) topic_start_num <- 2
+        topic_end_num <- topic_start_num + (old_end - old_start)
+        if (old_start == topic_start_num & old_end == topic_end_num)
+        {
+          old_interval <- topic_num_interval
+          change_interval <- 1
+        }
+        
+      }else if (coeff < tan(-1 * max_slope_angle * pi/180)) ## this means absolute slope angle is less than a certain value in degree
+      {
+        old_start <- topic_start_num
+        old_end <- topic_end_num
+        if (sequ[which.max(hm_many)] != old_end)
+        {
+          topic_end_num <- sequ[(which.max(hm_many) + 1)]
+        } else break
+        topic_start_num <- topic_end_num - (old_end - old_start)
+        if (topic_start_num < 2) topic_start_num <- 2
+        
+        if (old_start == topic_start_num & old_end == topic_end_num)
+        {
+          old_interval <- topic_num_interval
+          change_interval <- 1
+        }
+      }
+      else
+      {
+        if(topic_num_interval == 1) break 
+        old_start <- topic_start_num
+        old_end <- topic_end_num
+        old_interval <- topic_num_interval
+        change_interval <- 1
+      }
+      
+      if(change_interval == 1)
+      {
+        topic_num_interval <- round(sqrt(topic_num_interval))
+        topic_start_num <- sequ[which.max(hm_many)] - 
+          round(((old_end - old_start)/(2 * old_interval))*topic_num_interval)
+        topic_end_num <- sequ[which.max(hm_many)] + 
+          round(((old_end - old_start)/(2 * old_interval))*topic_num_interval)
+        if (topic_start_num < 2) topic_start_num <- 2
+      }
+      old_coeff <- coeff
+      print(paste("  \nFor next iteration topic_num_interval: ",topic_num_interval,
+                  ", topic_start_num: ",topic_start_num,
+                  ", topic_end_num: ",topic_end_num,"  \n"))
+  }
+  
+  # compute optimum number of topics
+  #print(sequ[which.max(hm_many)])
+  sub_title <- paste("The optimal number of topics is", 
+                                                   sequ[which.max(hm_many)])
+  
+  ldaplot <- ggplot(data.frame(sequ, hm_many), aes(x=sequ, y=hm_many)) + 
+    geom_path(lwd=1.5) +
+                  theme(text = element_text(family= NULL),
+        axis.title.y=element_text(vjust=1, size=16),
+        axis.title.x=element_text(vjust=-.5, size=16),
+        axis.text=element_text(size=16),
+        plot.title=element_text(size=20)) +
+        xlab('Number of Topics') +
+        ylab('Harmonic Mean')  +
+        ggtitle(bquote(atop("Latent Dirichlet Allocation Analysis of customer complaints", 
+                          atop(italic(.(sub_title)), ""))))
+      
+  
+  
+  ldaModel <- fitted_many[[which.max(hm_many)]]
+  
+  list(lda_plot = ldaplot,lda_model = ldaModel)
+  
+}
+
+
+
+generate.topic.terms <- function (ldaModel,num_topic_terms = 5)
+
+{
+  lda.topics <- as.data.frame(topics(ldaModel))
+  names(lda.topics) <- "topic_id"
+  lda.terms <- t(as.matrix(terms(ldaModel,num_topic_terms)))
+  
+  lda.terms.combined <- matrix(apply(as.data.frame(lda.terms),1,
+                                     paste,collapse="|"))
+  lda.topic.terms <- dplyr::mutate(lda.topics,
+                            topics = lda.terms.combined[topic_id])  
+  lda.topic.terms
+}
+
+
+remove.unclustered.dtm <- function(dtm)
+{
+  rowTotals <- apply(dtm , 1, sum) #Find the sum of words in each Document
+  dtm.non_uncl <- dtm[rowTotals> 0,] 
+  dtm.non_uncl
+}
+
+topicmodels_json_ldavis <- function(fitted, corpus, doc_term){
+        ## Find required quantities
+     phi <- posterior(fitted)$terms %>% as.matrix
+     theta <- posterior(fitted)$topics %>% as.matrix
+     vocab <- colnames(phi)
+     doc_length <- vector()
+     for (i in 1:length(corpus)) {
+          temp <- paste(corpus[[i]]$content, collapse = ' ')
+          doc_length <- c(doc_length, stri_count(temp, regex = '\\S+'))
+     }
+     temp_frequency <- as.matrix(doc_term)
+     freq_matrix <- data.frame(ST = colnames(temp_frequency),
+                               Freq = colSums(temp_frequency))
+     rm(temp_frequency)
+
+     ## Convert to json
+     json_lda <- LDAvis::createJSON(phi = phi, theta = theta,
+                                    vocab = vocab,
+                                    doc.length = doc_length,
+                                    term.frequency = freq_matrix$Freq)
+
+     return(json_lda)
+}
+
+
+```
+
+
+###Read input data
+
+```{r read_data}
+
+compDF <- read.csv("D:/Data Science/Automobile complaint analysis/input/auto_complaint.csv",
+                      stringsAsFactors = F)
+
+print(xtable(strtable(compDF)),
+      type="html",include.rownames = FALSE)
+
+
+```
+
+Visualising POS data for few complaints
+
+```{r sample_pos}
+
+sample_pos <- tagPOS(compDF[1,"Complaint.Text"])
+
+sample_pos$POStagged
+
+extractPOS(compDF[831,"Complaint.Text"],c("RB","NN","JJ","VBN"))
+
+extractPOS(compDF[545,"Complaint.Text"],c("RB"))
+
+```
+
+We'll extract only following POS for further analysis  
+RB -> Adverb  
+NN -> Noun, singular or mass, including NNP -> Proper noun, singular (and plural)  
+JJ -> Adjective  
+VBN -> Verb, past particple  
+
+
+```{r extract_pos}
+
+comp_keywords <- lapply(compDF[,"Complaint.Text"],
+                        extractPOS,
+                        POSregex_list = c("RB","NN","JJ","VBN")) 
+                        #POSregex_exclude_list = c("NNP"))
+comp_keywordsDF <- as.data.frame(do.call(rbind,comp_keywords))
+
+comp_keywordsDF[,1] <- as.character(comp_keywordsDF[,1])
+
+```
+
+### DTM creation
+
+```{r dtm_1}
+
+#special_symbols <- c("<p>","</p>","<blockquote>","</blockquote>")
+stop_words_file <- "D:/Data Science/Automobile complaint analysis/input/stop_words.csv"
+
+
+comp_keywordsDF <- cbind(compDF$S.No.,comp_keywordsDF,
+                                  stringsAsFactors = FALSE)
+
+names(comp_keywordsDF) <- c("ID","content")
+
+content_DTM_1 <- dtm.generate(comp_keywordsDF,
+                              1,0.99,
+                              #spl_sym = special_symbols,
+                              my_stop_word_file = stop_words_file,
+                              keep.id=TRUE,
+                              doIDF = FALSE)
+
+term1_tfidf <- tapply(content_DTM_1$v/slam::row_sums(content_DTM_1)[content_DTM_1$i], 
+                     content_DTM_1$j, mean) *
+              log2(tm::nDocs(content_DTM_1)/slam::col_sums(content_DTM_1 > 0))
+
+summary(term1_tfidf)
+
+term1_tfidf_iqr <- summary(term1_tfidf)[5] - summary(term1_tfidf)[2]
+
+# content_DTM_1.reduced <- content_DTM_1[,
+#                           term1_tfidf >= (summary(term1_tfidf)[2] - 1.5 * term1_tfidf_iqr) &
+#                           term1_tfidf <= (summary(term1_tfidf)[5] + 1.5 * term1_tfidf_iqr)]
+
+content_DTM_1.reduced <- content_DTM_1[,
+                  term1_tfidf >= (summary(term1_tfidf)[3])]
+
+summary(slam::col_sums(content_DTM_1.reduced))
+
+```
+
+
+```{r wordclouds_1}
+
+wf_content_DTM_1 <- wf.generate(dtm=content_DTM_1.reduced,
+                                 wc_freq = 50,
+                                 wc_freq_scale = c(3, .3))
+```
+
+
+```{r dtm_2}
+
+content_DTM_2 <- dtm.generate(comp_keywordsDF,
+                              2,0.995,
+                              #spl_sym = special_symbols,
+                              my_stop_word_file = stop_words_file,
+                              keep.id=TRUE,
+                              doIDF = FALSE)
+
+term2_tfidf <- tapply(content_DTM_2$v/slam::row_sums(content_DTM_2)[content_DTM_2$i], 
+                     content_DTM_2$j, mean) *
+              log2(tm::nDocs(content_DTM_2)/slam::col_sums(content_DTM_2 > 0))
+
+summary(term2_tfidf)
+
+term2_tfidf_iqr <- summary(term2_tfidf)[5] - summary(term2_tfidf)[2]
+
+# content_DTM_2.reduced <- content_DTM_2[,
+#                           term2_tfidf >= (summary(term2_tfidf)[2] - 1.5 * term2_tfidf_iqr) &
+#                           term2_tfidf <= (summary(term2_tfidf)[5] + 1.5 * term2_tfidf_iqr)]
+
+content_DTM_2.reduced <- content_DTM_2[,
+                      term2_tfidf >= (summary(term2_tfidf)[2])]
+summary(slam::col_sums(content_DTM_2.reduced))
+```
+
+
+```{r wordclouds_2}
+
+wf_content_DTM_2 <- wf.generate(dtm=content_DTM_2.reduced,
+                                 wc_freq = 50,
+                                 wc_freq_scale = c(2.5, .25))
+
+```
+
+
+```{r dtm_3}
+
+content_DTM_3 <- dtm.generate(comp_keywordsDF,
+                              3,0.995,
+                              #spl_sym = special_symbols,
+                              my_stop_word_file = stop_words_file,
+                              keep.id=TRUE,
+                              doIDF = FALSE)
+
+term3_tfidf <- tapply(content_DTM_3$v/slam::row_sums(content_DTM_3)[content_DTM_3$i], 
+                     content_DTM_3$j, mean) *
+              log2(tm::nDocs(content_DTM_3)/slam::col_sums(content_DTM_3 > 0))
+
+summary(term3_tfidf)
+
+term3_tfidf_iqr <- summary(term3_tfidf)[5] - summary(term3_tfidf)[2]
+
+# content_DTM_3.reduced <- content_DTM_3[,
+#                           term3_tfidf >= (summary(term3_tfidf)[2] - 1.5 * term3_tfidf_iqr) &
+#                           term3_tfidf <= (summary(term3_tfidf)[5] + 1.5 * term3_tfidf_iqr)]
+
+content_DTM_3.reduced <- content_DTM_3[,
+                        term3_tfidf >= (summary(term3_tfidf))[2]] 
+summary(slam::col_sums(content_DTM_3.reduced))
+
+```
+
+
+```{r wordclouds_3}
+
+wf_content_DTM_3 <- wf.generate(dtm=content_DTM_3.reduced,
+                                 wc_freq = 50,
+                                 wc_freq_scale = c(2, .2))
+
+```
+
+
+```{r dtm_consolidated}
+
+content_DTM <- cbind(content_DTM_1.reduced,content_DTM_2.reduced,content_DTM_3.reduced)
+
+
+content_DTM.uncl <- remove.unclustered.dtm(content_DTM)
+
+```
+
+
+```{r wordclouds_consolidated}
+
+
+wf_content_DTM.uncl <- wf.generate(dtm=content_DTM.uncl,
+                                 wc_freq = 100,
+                                 wc_freq_scale = c(2, .2))
+
+```
+
+
+###Topic Modeling
+
+```{r lda}
+
+content.lda.list <- generate.lda(content_DTM.uncl)
+
+content.lda.model <- content.lda.list$lda_model
+
+content.lda.list$lda_plot
+      
+```
+
+```{r inspect_lda}
+
+complain.topics <- topicmodels::topics(content.lda.model, 1)
+## In this case I am returning the top 30 terms.
+complain.topics.terms <- as.data.frame(topicmodels::terms(content.lda.model, 30), 
+                                       stringsAsFactors = FALSE)
+print(xtable(complain.topics.terms[,1:5]),
+      type="html",include.rownames = FALSE)
+
+
+# Creates a dataframe to store the complaint Number and the most likely topic
+doctopics.df <- as.data.frame(complain.topics)
+doctopics.df <- dplyr::mutate(doctopics.df,
+                              complain_id = rownames(doctopics.df))
+colnames(doctopics.df)[1] <- "topic_id"
+doctopics.df$complain_id <- as.integer(doctopics.df$complain_id)
+
+## Adds topic number to original dataframe of lessons
+comp_topicDF <- dplyr::inner_join(compDF, doctopics.df, 
+                             by = c("S.No."="complain_id"))
+
+
+
+
+```
+
+```{r complain_topic_top_terms}
+
+topicTerms <- tidyr::gather(complain.topics.terms, Topic)
+topicTerms <- cbind(topicTerms, Rank = rep(1:30))
+topTerms <- dplyr::filter(topicTerms, Rank < 6)
+topTerms <- dplyr::mutate(topTerms, Topic = stringr::word(Topic, 2))
+topTerms$Topic <- as.numeric(topTerms$Topic)
+topicLabel <- data.frame()
+for (i in 1:length(complain.topics.terms)){
+     z <- dplyr::filter(topTerms, Topic == i)
+     l <- as.data.frame(glue::collapse(z[,2], sep = "|" ), 
+                        stringsAsFactors = FALSE)
+     topicLabel <- rbind(topicLabel, l)
+
+}
+
+topicLabel <- cbind(topicLabel,rownames(topicLabel))
+colnames(topicLabel) <- c("Label","topic_id")
+topicLabel$topic_id <- as.numeric(as.character(topicLabel$topic_id))
+
+comp_topicDF <- dplyr::inner_join(comp_topicDF,topicLabel,by="topic_id")
+
+print(xtable(topicLabel),
+      type="html",include.rownames = FALSE)
+
+```
+
+
+```{r topic visualisation, cache=FALSE}
+
+comp_keywordsDF.reduced <- comp_keywordsDF[comp_keywordsDF$ID %in% 
+                                             doctopics.df$complain_id,]
+
+m <- list(id = "ID", content = colnames(comp_keywordsDF.reduced)[2])
+myReader <- readTabular(mapping = m)
+complain.corpus <- VCorpus(DataframeSource(comp_keywordsDF.reduced), 
+                           readerControl = list(reader = myReader))
+
+complain.json <- topicmodels_json_ldavis(content.lda.model, 
+                                         complain.corpus, content_DTM.uncl)
+serVis(complain.json,
+       out.dir = 'vis', 
+       open.browser=FALSE)
+
+```
+
+
+<iframe width="1300" height="1000" src="vis/index.html" frameborder="0"></iframe>
+
+
+
+
+```{r write_final_output_xlsx, cache=FALSE}
+
+output_directory <- "D:/Data Science/Automobile complaint analysis/processed_data"
+output_file = paste(output_directory,"/automobile_customer_complain_topics_",
+                    format(Sys.Date(), "%Y%m%d"),".csv",sep="")
+
+write.csv(comp_topicDF,output_file,row.names=FALSE)
+print(paste("  \nFollowing output file created - ",output_file,sep=""))
+
+```
