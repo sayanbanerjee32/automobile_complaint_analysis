@@ -22,6 +22,7 @@ library(NLP)
 library(tm)
 library(slam)
 library(openNLP)
+library(lexRankr)
 
 library(RWeka)
 library(cluster)
@@ -1171,7 +1172,35 @@ create_group_plots(comp_topicDF,
 
 ```
 
+# Topic summarization
+
+```{r summ}
+
+topic_summary_DF <- data.frame()
+for(top_id in unique(comp_topicDF$topic_id))
+{
+  temp_df4sum <- comp_topicDF %>%
+    filter(topic_id == top_id)
+  temp_sum_df <- lexRank(temp_df4sum[,"Complaint.Text"],
+                         threshold = 0.5,
+                         n=ceiling(nrow(temp_df4sum) * 0.25),
+                         Verbose = FALSE)
   
+  topic_summary <- c(topic_id=top_id,
+                     topic_summary_txt = paste(temp_sum_df[,"sentence"],collapse="\n"))
+  topic_summary_DF <- rbind(topic_summary_DF,topic_summary,
+                            stringsAsFactors =FALSE)
+  names(topic_summary_DF) <- c("topic_id","topic_summary_txt")
+}
+
+topic_summary_DF$topic_id <- as.numeric(topic_summary_DF$topic_id) 
+topic_summary_DF <- inner_join(topicLabel,topic_summary_DF,
+                               by = "topic_id")
+
+print(xtable(topic_summary_DF),
+      type="html",include.rownames = FALSE)
+
+```
 # Output file
 ```{r write_final_output_xlsx, cache=FALSE}
 
