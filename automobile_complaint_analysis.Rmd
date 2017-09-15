@@ -1160,8 +1160,9 @@ create_group_plots(comp_topicDF,
                    10)
 
 ```
-## Visualizing Averaged out sentiments
-
+  
+## Visualizing Averaged out sentiments  
+  
 ```{r averaged sentiment}
 
 
@@ -1182,12 +1183,13 @@ for(top_id in unique(comp_topicDF$topic_id))
   temp_df4sum <- comp_topicDF %>%
     filter(topic_id == top_id)
   temp_sum_df <- lexRank(temp_df4sum[,"Complaint.Text"],
-                         threshold = 0.5,
+                         threshold = 0.2,
                          n=ceiling(nrow(temp_df4sum) * 0.25),
                          Verbose = FALSE)
   
   topic_summary <- c(topic_id=top_id,
-                     topic_summary_txt = paste(temp_sum_df[,"sentence"],collapse="\n"))
+                     topic_summary_txt = paste(temp_sum_df[,"sentence"],
+                                               collapse="  \n"))
   topic_summary_DF <- rbind(topic_summary_DF,topic_summary,
                             stringsAsFactors =FALSE)
   names(topic_summary_DF) <- c("topic_id","topic_summary_txt")
@@ -1201,7 +1203,9 @@ print(xtable(topic_summary_DF),
       type="html",include.rownames = FALSE)
 
 ```
-# Output file
+  
+# Output file  
+
 ```{r write_final_output_xlsx, cache=FALSE}
 
 output_directory <- "D:/Data Science/Automobile complaint analysis/processed_data"
