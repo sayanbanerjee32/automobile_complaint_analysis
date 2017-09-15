@@ -7,13 +7,10 @@ output:
     number_sections: yes
     toc: yes
 ---
-###Synopsis
+#Synopsis
 
-save.image(file = "D:/Data Science/Automobile complaint analysis/scripts/auto_comp.RData")  
-load("D:/Data Science/Automobile complaint analysis/scripts/auto_comp.RData") 
-
-"C:/Program Files (x86)/Google/Chrome/Application/chrome.exe" --allow-file-access-from-files file:///D:/Data%20Science/Automobile%20complaint%20analysis/scripts/automobile_complaint_analysis.html
-
+This is analysis of complaints for an automobile company. This includes topic analysis and sentiment analysis.  
+  
 Loading the required packages for the data analysis  
 
 ```{r loadpackages, echo=TRUE, results="hide", message=FALSE,warning=FALSE}
@@ -61,7 +58,7 @@ opts_chunk$set(echo=TRUE, results="asis",cache=TRUE,tidy=FALSE,warning=FALSE)
 ```
 
 
-### User defined function
+# User defined function
 
 All user defined functions are currently hidden  
 
@@ -676,7 +673,7 @@ create_group_plots <- function(df,target,var_list,top_num = c(5,3))
 ```
 
 
-###Read input data
+#Read input data
 
 ```{r read_data}
 
@@ -689,7 +686,10 @@ print(xtable(strtable(compDF)),
 
 ```
 
-Visualising POS data for few complaints
+# Data pre-processing
+## POS tagging
+
+Visualizing POS data for few complaints  
 
 ```{r sample_pos}
 
@@ -707,7 +707,7 @@ We'll extract only following POS for further analysis
 RB -> Adverb  
 NN -> Noun, singular or mass, including NNP -> Proper noun, singular (and plural)  
 JJ -> Adjective  
-VBN -> Verb, past particple  
+VBN -> Verb, past participle  
 
 
 ```{r extract_pos}
@@ -727,7 +727,7 @@ names(comp_keywordsDF) <- c("ID","content")
 
 ```
 
-### Stop words suggestion
+## Stop words suggestion
 
 ```{r stop words suggestion}
 recommended_stop_words <- suggest_stop_words(comp_keywordsDF,1:3,0.999)
@@ -744,7 +744,7 @@ print(paste("  \nFollowing output file created - ",recom_stop_words_file,sep="")
   
 These are only recommended stop words. Need to use single words stop words from the list  
   
-### DTM creation
+## DTM creation
 
 ```{r dtm_1}
 
@@ -777,6 +777,7 @@ summary(slam::col_sums(content_DTM_1.reduced))
 
 ```
 
+### Word cloud for single words
 
 ```{r wordclouds_1}
 
@@ -809,9 +810,10 @@ content_DTM_2.reduced <- content_DTM_2[,
 # content_DTM_2.reduced <- content_DTM_2[,
 #                       term2_tfidf >= (summary(term2_tfidf)[2])]
 summary(slam::col_sums(content_DTM_2.reduced))
-content_DTM_2.reduced$v <- content_DTM_2.reduced$v * (2^2)
+#content_DTM_2.reduced$v <- content_DTM_2.reduced$v * (2^2)
 ```
 
+### Word cloud for two consecutive words  
 
 ```{r wordclouds_2}
 
@@ -847,11 +849,12 @@ content_DTM_3.reduced <- content_DTM_3[,
 #                         term3_tfidf >= (summary(term3_tfidf))[2]] 
 
 summary(slam::col_sums(content_DTM_3.reduced))
-content_DTM_3.reduced$v <- content_DTM_3.reduced$v * (3^3)
+#content_DTM_3.reduced$v <- content_DTM_3.reduced$v * (3^3)
 
 
 ```
 
+### Word cloud for three consecutive words
 
 ```{r wordclouds_3}
 
@@ -866,11 +869,11 @@ wf_content_DTM_3 <- wf.generate(dtm=content_DTM_3.reduced,
 
 content_DTM <- cbind(content_DTM_3.reduced,content_DTM_2.reduced)
 
-
 content_DTM.uncl <- remove.unclustered.dtm(content_DTM)
 
 ```
 
+### Word cloud for words that will be used for topic modelling
 
 ```{r wordclouds_consolidated}
 
@@ -881,7 +884,7 @@ wf_content_DTM.uncl <- wf.generate(dtm=content_DTM.uncl,
 ```
 
 
-###Topic Modeling
+# Topic Modeling
 
 ```{r lda}
 
@@ -893,6 +896,7 @@ content.lda.list$lda_plot
       
 ```
 
+## Terms for 5 topics as an example
 ```{r inspect_lda}
 
 complain.topics <- topicmodels::topics(content.lda.model, 1)
@@ -918,6 +922,8 @@ comp_topicDF <- dplyr::inner_join(compDF, doctopics.df,
 
 
 ```
+
+## All topics with 5 top terms
 
 ```{r complain_topic_top_terms}
 
@@ -946,7 +952,9 @@ print(xtable(topicLabel),
 
 ```
 
+# Topic Visualization
 
+## Topic Distances and term relevance
 ```{r topic visualisation, cache=FALSE}
 
 comp_keywordsDF.reduced <- comp_keywordsDF[comp_keywordsDF$ID %in% 
@@ -969,7 +977,7 @@ serVis(complain.json,
 <iframe width="1300" height="1000" src="vis/index.html" frameborder="0"></iframe>
 
 
-#### Topic correlation and community detection
+## Topic correlation
 
 ```{r word topic creation}
 
@@ -994,7 +1002,7 @@ colnames(word.topics) <- c("word",topic_name)
 
 ```
 
-#### Clustering
+## Topic Clustering
 
 ```{r word clustering topics }
 
@@ -1020,8 +1028,8 @@ abline(v = heights_per_k.dendrogram(dend)["10"], lwd = 2, lty = 2, col = "blue")
 
 ```
 
-
-#### Create static networks
+## Community detection
+### Static networks
 
 ```{r topic correlation}
 cor_threshold <- .2
@@ -1036,22 +1044,20 @@ diag(cor_mat) <- 0
 
 graph <- graph.adjacency(cor_mat, weighted=TRUE, mode="lower")
 
-E(graph)$edge.width <- E(graph)$weight
-V(graph)$label <- paste(1:(ncol(word.topics)-1))
-
-
-par(mar=c(0, 0, 3, 0))
-set.seed(110)
-plot.igraph(graph, edge.width = E(graph)$edge.width, 
-            edge.color = "blue", vertex.color = "white", vertex.size = 1,
-            vertex.frame.color = NA, vertex.label.color = "grey30")
-title("Strength Between Topics Based On Word Probabilities", cex.main=.8)
+# E(graph)$edge.width <- E(graph)$weight
+# V(graph)$label <- paste(1:(ncol(word.topics)-1))
+# 
+# 
+# par(mar=c(0, 0, 3, 0))
+# set.seed(110)
+# plot.igraph(graph, edge.width = E(graph)$edge.width, 
+#             edge.color = "blue", vertex.color = "white", vertex.size = 1,
+#             vertex.frame.color = NA, vertex.label.color = "grey30")
+# title("Strength Between Topics Based On Word Probabilities", cex.main=.8)
 
 ```
   
-Each number represents a topic, each topic is numbered to identify it.
-
-Observation is that there appears to be 11 main clusters and 6 smaller clusters.  
+ 
   
 
 ```{r community detection}
@@ -1068,9 +1074,7 @@ V(graph)$degree <- degree(graph, v = V(graph))
 ```
 
   
-This shows 24 different clusters / comunities. Plus multiple additional communities for each of the isolated topics (i.e., topics that do not have any connections).  
-  
-The algorithm found the 15 main clusters, but also added additional smaller clusters that don't seem to fit well in any of the 9 main clusters.  
+No particular clusters found
   
 ### Dynamic visualization
 
@@ -1079,51 +1083,10 @@ visIgraph(graph)
 
 ```
   
-Finally, let's create our network with an interactive plot. You can zoom by using your mouse scroll wheel.  
-  
-  
-```{r dynamic vis network}
-data <- toVisNetworkData(graph)
-nodes <- data[[1]]
-edges <- data[[2]]
-
-# delete nodes that dont have a connection (degree == 0)
-
-nodes <- nodes[nodes$degree != 0,]
 
 
-col <- brewer.pal(12, "Set3")[as.factor(nodes$community)]
-nodes$shape <- "dot" 
-nodes$shadow <- TRUE # Nodes will drop shadow
-nodes$title <- nodes$id # Text on click
-nodes$size <- ((nodes$betweenness / max(nodes$betweenness))+.2)*20 # Node size
-nodes$borderWidth <- 2 # Node border width
-nodes$color.background <- col
-nodes$color.border <- "black"
-nodes$color.highlight.background <- "orange"
-nodes$color.highlight.border <- "darkred"
-edges$title <- round(edges$edge.width,3)
-
-visNetwork(nodes, edges) %>% 
-    visOptions(highlightNearest = TRUE, selectedBy = "community", nodesIdSelection = TRUE)
-
-```
   
-First, note that there are two dropdown menus. The first dropdown allows you to find any of the topics by name (top five words by word probability).  
-  
-The second dropdown highlights the communities detected in our algorithm. Play around with this menu. Using the topic names (zoom in with mouse scroll), you can interpret what the topic community seem to be.  
-  
-The 5 largest seems to be:
-1. Related to bonus discount at the time of purchase (drak green in colour, cluster 2)  
-2. Related to Visa (light blue, cluster 1)  
-3. Related ro Work permit (light yellow, cluster 2)  
-4. related to job level (Drak blue, cluster 5)  
-  
-There are other smaller communities/ clusters that are shown in the diagram.  
-  
-Last, the size of the bubble's is based on the network (centrality) measure betweenness. This measures how important that node is to the entire network's connectivity. In this example, larger nodes have a high betweenness, which implies the topic is more important in crossing across topic clusters.  
-  
-### Sentiment Analysis
+# Sentiment Analysis
 ```{r sentiments}
 
 sentiment_syuzhet <- get_sentiment(comp_topicDF$Complaint.Text)
@@ -1147,7 +1110,7 @@ comp_topicDF <- as.data.frame(comp_topicDF %>%
 ```
 
 
-#### Visualizing Syuzhet sentiments
+## Visualizing Syuzhet sentiments
 
 ```{r syushet sentiment}
 
@@ -1160,7 +1123,7 @@ create_group_plots(comp_topicDF,
 
 ```
 
-#### Visualizing Bing sentiments
+## Visualizing Bing sentiments
 
 ```{r bing sentiment}
 
@@ -1172,7 +1135,7 @@ create_group_plots(comp_topicDF,
 
 ```
 
-#### Visualizing Afinn sentiments
+## Visualizing Afinn sentiments
 
 ```{r afinn sentiment}
 
@@ -1185,7 +1148,7 @@ create_group_plots(comp_topicDF,
 ```
 
 
-#### Visualizing NRC sentiments
+## Visualizing NRC sentiments
 
 ```{r nrc sentiment}
 
@@ -1196,7 +1159,7 @@ create_group_plots(comp_topicDF,
                    10)
 
 ```
-#### Visualizing Averaged out sentiments
+## Visualizing Averaged out sentiments
 
 ```{r averaged sentiment}
 
@@ -1209,7 +1172,7 @@ create_group_plots(comp_topicDF,
 ```
 
   
-### Output file
+# Output file
 ```{r write_final_output_xlsx, cache=FALSE}
 
 output_directory <- "D:/Data Science/Automobile complaint analysis/processed_data"
