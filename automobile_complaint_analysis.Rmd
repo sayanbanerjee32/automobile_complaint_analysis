@@ -22,7 +22,9 @@ library(NLP)
 library(tm)
 library(slam)
 library(openNLP)
+library(quanteda)
 library(lexRankr)
+library(LSAfun)
 
 library(RWeka)
 library(cluster)
@@ -1175,6 +1177,7 @@ create_group_plots(comp_topicDF,
 
 # Topic summarization
 
+## Summarization for each Topic
 ```{r summ}
 
 topic_summary_DF <- data.frame()
@@ -1201,6 +1204,27 @@ topic_summary_DF <- inner_join(topicLabel,topic_summary_DF,
 
 print(xtable(topic_summary_DF),
       type="html",include.rownames = FALSE)
+
+```
+  
+## Summarization for each complaint
+
+```{r summ comp}
+
+comp_sum <- c()
+for(i in 1:nrow(comp_topicDF))
+{
+    if(nsentence(comp_topicDF[i,"Complaint.Text"]) > 2)
+  {
+    comp_sum <- c(comp_sum,paste(genericSummary(comp_topicDF[i,"Complaint.Text"],2),
+                                               collapse="  \n"))
+  } else {
+    comp_sum <- c(comp_sum,comp_topicDF[i,"Complaint.Text"])
+  }
+}
+
+comp_topicDF <- cbind.data.frame(comp_topicDF,complaint_summary = comp_sum,
+                                 stringsAsFactors = FALSE)
 
 ```
   

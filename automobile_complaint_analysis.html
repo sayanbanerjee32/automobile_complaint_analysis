@@ -161,7 +161,10 @@ $(document).ready(function () {
 <li><a href="#visualizing-nrc-sentiments"><span class="toc-section-number">7.4</span> Visualizing NRC sentiments</a></li>
 <li><a href="#visualizing-averaged-out-sentiments"><span class="toc-section-number">7.5</span> Visualizing Averaged out sentiments</a></li>
 </ul></li>
-<li><a href="#topic-summarization"><span class="toc-section-number">8</span> Topic summarization</a></li>
+<li><a href="#topic-summarization"><span class="toc-section-number">8</span> Topic summarization</a><ul>
+<li><a href="#summarization-for-each-topic"><span class="toc-section-number">8.1</span> Summarization for each Topic</a></li>
+<li><a href="#summarization-for-each-complaint"><span class="toc-section-number">8.2</span> Summarization for each complaint</a></li>
+</ul></li>
 <li><a href="#output-file"><span class="toc-section-number">9</span> Output file</a></li>
 </ul>
 </div>
@@ -177,7 +180,9 @@ library(NLP)
 library(tm)
 library(slam)
 library(openNLP)
+library(quanteda)
 library(lexRankr)
+library(LSAfun)
 
 library(RWeka)
 library(cluster)
@@ -1340,6 +1345,8 @@ comp_topicDF &lt;- as.data.frame(comp_topicDF %&gt;%
 </div>
 <div id="topic-summarization" class="section level1">
 <h1><span class="header-section-number">8</span> Topic summarization</h1>
+<div id="summarization-for-each-topic" class="section level2">
+<h2><span class="header-section-number">8.1</span> Summarization for each Topic</h2>
 <pre class="r"><code>topic_summary_DF &lt;- data.frame()
 for(top_id in unique(comp_topicDF$topic_id))
 {
@@ -1980,6 +1987,24 @@ Today’s world is totally customer oriented world we have to give top level ser
 </tr>
 </table>
 </div>
+<div id="summarization-for-each-complaint" class="section level2">
+<h2><span class="header-section-number">8.2</span> Summarization for each complaint</h2>
+<pre class="r"><code>comp_sum &lt;- c()
+for(i in 1:nrow(comp_topicDF))
+{
+    if(nsentence(comp_topicDF[i,&quot;Complaint.Text&quot;]) &gt; 2)
+  {
+    comp_sum &lt;- c(comp_sum,paste(genericSummary(comp_topicDF[i,&quot;Complaint.Text&quot;],2),
+                                               collapse=&quot;  \n&quot;))
+  } else {
+    comp_sum &lt;- c(comp_sum,comp_topicDF[i,&quot;Complaint.Text&quot;])
+  }
+}
+
+comp_topicDF &lt;- cbind.data.frame(comp_topicDF,complaint_summary = comp_sum,
+                                 stringsAsFactors = FALSE)</code></pre>
+</div>
+</div>
 <div id="output-file" class="section level1">
 <h1><span class="header-section-number">9</span> Output file</h1>
 <pre class="r"><code>output_directory &lt;- &quot;D:/Data Science/Automobile complaint analysis/processed_data&quot;
@@ -1988,7 +2013,7 @@ output_file = paste(output_directory,&quot;/automobile_customer_complain_topics_
 
 write.csv(comp_topicDF,output_file,row.names=FALSE)
 print(paste(&quot;  \nFollowing output file created - &quot;,output_file,sep=&quot;&quot;))</code></pre>
-<p>[1] &quot; output file created - D:/Data Science/Automobile complaint analysis/processed_data/automobile_customer_complain_topics_20170915.csv&quot;</p>
+<p>[1] &quot; output file created - D:/Data Science/Automobile complaint analysis/processed_data/automobile_customer_complain_topics_20170916.csv&quot;</p>
 </div>
 
 
