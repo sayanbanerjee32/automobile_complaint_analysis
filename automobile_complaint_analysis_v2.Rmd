@@ -121,14 +121,21 @@ print.strtable <- function(x, ...) {
 
 tagPOS <-  function(x, ...) {
   s <- as.String(x)
-  word_token_annotator <- Maxent_Word_Token_Annotator()
-  a2 <- Annotation(1L, "sentence", 1L, nchar(s))
-  a2 <- annotate(s, word_token_annotator, a2)
-  a3 <- NLP::annotate(s, Maxent_POS_Tag_Annotator(), a2)
-  a3w <- a3[a3$type == "word"]
-  POStags <- unlist(lapply(a3w$features, `[[`, "POS"))
-  POStagged <- paste(sprintf("%s/%s", s[a3w], POStags), collapse = " ")
-  list(POStagged = POStagged, POStags = POStags)
+  if(length(s) > 0 & nchar(s) > 1)
+  {
+    word_token_annotator <- Maxent_Word_Token_Annotator()
+    a2 <- Annotation(1L, "sentence", 1L, nchar(s))
+    a2 <- annotate(s, word_token_annotator, a2)
+    a3 <- NLP::annotate(s, Maxent_POS_Tag_Annotator(), a2)
+    a3w <- a3[a3$type == "word"]
+    POStags <- unlist(lapply(a3w$features, `[[`, "POS"))
+    POStagged <- paste(sprintf("%s/%s", s[a3w], POStags), collapse = " ")
+    pos_ret <- list(POStagged = POStagged, POStags = POStags)
+  } else {
+    pos_ret <- list(POStagged = s, POStags = "")
+  }
+  pos_ret
+    
 }
 annotators <- list(sent_token = Maxent_Sent_Token_Annotator(),
                    word_token = Maxent_Word_Token_Annotator(),
@@ -140,35 +147,42 @@ extractPOS <- function(x, POSregex_list,
   #print(paste("extractPOS started: ",Sys.time()))
   x <- as.String(x)
   #print(x)
-  wordAnnotation <- NLP::annotate(x, list(ann$sent_token, ann$word_token))
-  #print(paste("Maxent_Sent_Token_Annotator and Maxent_Word_Token_Annotator completed: ",Sys.time()))
-  POSAnnotation <- annotate(x, ann$pos_tag, wordAnnotation)
-  #print(paste("Maxent_POS_Tag_Annotator completed: ",Sys.time()))
-  POSwords <- subset(POSAnnotation, type == "word")
-  tags <- sapply(POSwords$features, '[[', "POS")
-  if(length(POSregex_list) > 0 & nchar(POSregex_list[1]) > 1)
+  if(length(x) > 0 & nchar(x) > 1)
   {
-    thisPOSindex <- grep(paste(POSregex_list,collapse="|"), tags)
-    if (length(thisPOSindex) > 0)
-    {
-      if(length(POSregex_exclude_list) > 0 & 
-         nchar(POSregex_exclude_list[1]) > 1)
+      wordAnnotation <- NLP::annotate(x, list(ann$sent_token, ann$word_token))
+      #print(paste("Maxent_Sent_Token_Annotator and Maxent_Word_Token_Annotator completed: ",
+      #Sys.time()))
+      POSAnnotation <- annotate(x, ann$pos_tag, wordAnnotation)
+      #print(paste("Maxent_POS_Tag_Annotator completed: ",Sys.time()))
+      POSwords <- subset(POSAnnotation, type == "word")
+      tags <- sapply(POSwords$features, '[[', "POS")
+      if(length(POSregex_list) > 0 & nchar(POSregex_list[1]) > 1)
       {
-        thisPOSindex <- setdiff(thisPOSindex, 
-        grep(paste(POSregex_exclude_list,collapse="|"), tags))
+        thisPOSindex <- grep(paste(POSregex_list,collapse="|"), tags)
+        if (length(thisPOSindex) > 0)
+        {
+          if(length(POSregex_exclude_list) > 0 & 
+             nchar(POSregex_exclude_list[1]) > 1)
+          {
+            thisPOSindex <- setdiff(thisPOSindex, 
+            grep(paste(POSregex_exclude_list,collapse="|"), tags))
+          }
+          if(with_tag)
+          {
+            tokenizedAndTagged <- sprintf("%s/%s", 
+                                          x[POSwords][thisPOSindex],
+                                          tags[thisPOSindex])
+          } else tokenizedAndTagged <- as.character(x[POSwords])[thisPOSindex]
+        } else tokenizedAndTagged <- ""
+    
+      } else {
+        tokenizedAndTagged <- sprintf("%s/%s", x[POSwords], tags)
       }
-      if(with_tag)
-      {
-        tokenizedAndTagged <- sprintf("%s/%s", 
-                                      x[POSwords][thisPOSindex],
-                                      tags[thisPOSindex])
-      } else tokenizedAndTagged <- as.character(x[POSwords])[thisPOSindex]
-    } else tokenizedAndTagged <- ""
-
+      untokenizedAndTagged <- paste(tokenizedAndTagged, collapse = " ")
   } else {
-    tokenizedAndTagged <- sprintf("%s/%s", x[POSwords], tags)
+    untokenizedAndTagged <- x
   }
-  untokenizedAndTagged <- paste(tokenizedAndTagged, collapse = " ")
+  
   untokenizedAndTagged
 }
 
@@ -673,6 +687,48 @@ create_group_plots <- function(df,target,var_list,top_num = c(5,3))
   print(group_box)
 
 }
+
+genericSummary_revised <- function (text, k, 
+                            split = "\\.|!|\\?", 
+                            min = 5, 
+                            breakdown = FALSE,...) 
+{
+    sentences <- unlist(strsplit(text, split = split, fixed = F))
+    if (breakdown == TRUE) {
+        sentences <- breakdown(sentences)
+    }
+    
+    sentences <- sentences[stri_count(sentences,regex="\\S+") > min]
+    if(length(sentences) > k)
+    {
+      td = tempfile()
+      dir.create(td)
+      for (i in 1:length(sentences)) {
+          docname <- paste("sentence", i, ".txt", sep = "")
+          write(sentences[i], file = paste(td, docname, sep = "/"))
+      }
+      A <- textmatrix(td, ...)
+      rownames <- rownames(A)
+      colnames <- colnames(A)
+      A <- matrix(A, nrow = nrow(A), ncol = ncol(A))
+      rownames(A) <- rownames
+      colnames(A) <- colnames
+      unlink(td, T, T)
+      Vt <- lsa(A, dims = length(sentences))$dk
+      snum <- vector(length = k)
+      for (i in 1:k) {
+          snum[i] <- names(Vt[, i][abs(Vt[, i]) == max(abs(Vt[, 
+              i]))])
+      }
+      snum <- gsub(snum, pattern = "[[:alpha:]]", replacement = "")
+      snum <- gsub(snum, pattern = "[[:punct:]]", replacement = "")
+      snum <- as.integer(snum)
+      summary.sentences <- sentences[snum]
+    }else{
+      summary.sentences <- sentences 
+    }
+    summary.sentences
+}
 ```
 
 
@@ -710,23 +766,45 @@ comp_sum <- c()
 for(i in 1:nrow(compDF))
 {
   #print(i)
-  if(length(gregexpr('[[:alnum:] ]{5}[.!?]', 
-                     compDF[i,"Complaint.Text"])[[1]]) > 2)
-  {
-    comp_sum <- c(comp_sum,paste(genericSummary(gsub("[\\?|!]",".",
-                                        compDF[i,"Complaint.Text"]),
+  
+  comp_sum <- c(comp_sum,paste(genericSummary_revised(
+                                      compDF[i,"Complaint.Text"],
                                                 k=2,
-                                                min=10),
+                                                min=5),
                                                collapse="  \n"))
-  } else {
-    comp_sum <- c(comp_sum,compDF[i,"Complaint.Text"])
-  }
+  
+  # if(length(gregexpr('[[:alnum:] ]{5}[.!?]', 
+  #                    compDF[i,"Complaint.Text"])[[1]]) > 2)
+  # {
+  #   comp_sum <- c(comp_sum,paste(genericSummary(gsub("[\\?|!]",".",
+  #                                       compDF[i,"Complaint.Text"]),
+  #                                               k=2,
+  #                                               min=10),
+  #                                              collapse="  \n"))
+  # } else {
+  #   comp_sum <- c(comp_sum,compDF[i,"Complaint.Text"])
+  # }
 }
 
 compDF <- cbind.data.frame(compDF,complaint_summary = comp_sum,
                                  stringsAsFactors = FALSE)
 
 ```
+
+
+### Interim file  
+
+```{r write_interim_file, cache=FALSE}
+
+interim_directory <- "D:/Data Science/Automobile complaint analysis/processed_data"
+interim_file = paste(interim_directory,"/automobile_customer_complain_interim_",
+                    format(Sys.Date(), "%Y%m%d"),".csv",sep="")
+
+write.csv(compDF,interim_file,row.names=FALSE)
+print(paste("  \nFollowing interim file created - ",interim_file,sep=""))
+
+```
+
 
 ## POS tagging
 
@@ -1224,12 +1302,12 @@ for(top_id in unique(comp_topicDF$topic_id))
   temp_df4sum <- comp_topicDF %>%
     filter(topic_id == top_id)
   temp_sum_df <- lexRank(temp_df4sum[,"complaint_summary"],
-                         threshold = 0.4,
+                         threshold = 0.3,
                          n=ceiling(nrow(temp_df4sum) * 0.1),
                          Verbose = FALSE)
   
   topic_summary <- c(topic_id=top_id,
-                     topic_summary_txt = paste(temp_sum_df[,"sentence"],
+                     topic_summary_txt = paste(unique(temp_sum_df[,"sentence"]),
                                                collapse="  \n"))
   topic_summary_DF <- rbind(topic_summary_DF,topic_summary,
                             stringsAsFactors =FALSE)
