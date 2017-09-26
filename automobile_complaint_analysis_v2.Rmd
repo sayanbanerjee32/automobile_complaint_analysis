@@ -58,6 +58,7 @@ library(xtable)
 
 ```{r setopions, echo=FALSE}
 opts_chunk$set(echo=TRUE, results="asis",cache=TRUE,tidy=FALSE,warning=FALSE)
+opts_chunk$set(out.width='750px', dpi=200)
 ```
 
 
@@ -293,17 +294,22 @@ dtm.generate <- function(df,ng,
 
 wf.generate <- function(dtm,
                         wc_freq,
-                        wc_freq_scale)
+                        wc_freq_scale,
+                        seperator = FALSE)
 {
   
   freq <- sort(colSums(as.matrix(dtm)), decreasing=TRUE) 
   wf <- data.frame(word=names(freq), freq=freq,stringsAsFactors = FALSE)   
   
-
+  if(seperator)
+  {
+    wf$word <- gsub("^", "|", wf$word)
+    wf$word <- gsub("$", "|", wf$word)
+  }
   
   par(mfrow = c(1, 1))
   set.seed(142)   
-  wordcloud(names(freq), freq, min.freq=2,max.words=wc_freq, 
+  wordcloud(wf$word, freq, min.freq=2,max.words=wc_freq, 
             rot.per=0.15, scale=wc_freq_scale, 
             random.order=FALSE,
             colors=brewer.pal(6, "Dark2")) 
@@ -767,10 +773,10 @@ for(i in 1:nrow(compDF))
 {
   #print(i)
   
-  comp_sum <- c(comp_sum,paste(genericSummary_revised(
+  comp_sum <- c(comp_sum,paste(unique(genericSummary_revised(
                                       compDF[i,"Complaint.Text"],
                                                 k=2,
-                                                min=5),
+                                                min=5)),
                                                collapse="  \n"))
   
   # if(length(gregexpr('[[:alnum:] ]{5}[.!?]', 
@@ -903,6 +909,7 @@ summary(slam::col_sums(content_DTM_1.reduced))
 wf_content_DTM_1 <- wf.generate(dtm=content_DTM_1.reduced,
                                  wc_freq = 50,
                                  wc_freq_scale = c(3, .3))
+
 ```
 
 
@@ -939,6 +946,7 @@ summary(slam::col_sums(content_DTM_2.reduced))
 wf_content_DTM_2 <- wf.generate(dtm=content_DTM_2.reduced,
                                  wc_freq = 50,
                                  wc_freq_scale = c(2, .2))
+
 
 ```
 
@@ -981,6 +989,7 @@ wf_content_DTM_3 <- wf.generate(dtm=content_DTM_3.reduced,
                                 wc_freq = 50,
                                 wc_freq_scale = c(2, .2))
 
+
 ```
 
 
@@ -998,7 +1007,9 @@ content_DTM.uncl <- remove.unclustered.dtm(content_DTM)
 
 wf_content_DTM.uncl <- wf.generate(dtm=content_DTM.uncl,
                                  wc_freq = 50,
-                                 wc_freq_scale = c(2, .2))
+                                 wc_freq_scale = c(2.5, .25),
+                                 seperator = TRUE)
+
 
 ```
 
@@ -1291,6 +1302,64 @@ create_group_plots(comp_topicDF,
 
 ```
 
+## Sentiment Word cloud
+
+```{r sentiment word cloud data preparation}
+
+content_DTM.uncl_df <- as.data.frame.matrix(content_DTM.uncl)
+content_DTM.uncl_df$id <- rownames(content_DTM.uncl_df) 
+tmp <- comp_topicDF[,c("S.No.","sentiment_afinn")]
+names(tmp) <- c("id","sent")
+tmp$id <- as.character(tmp$id)
+
+content_DTM.uncl_df <- inner_join(content_DTM.uncl_df,
+                                  tmp,
+                                  by=c("id"))
+content_DTM.uncl_df <- cbind(sentiment=ifelse(content_DTM.uncl_df$sent > 0,
+                                                 "positive",
+                                                 ifelse(content_DTM.uncl_df$sent < 0,
+                                                        "negative","neutral")),
+                              content_DTM.uncl_df)
+
+sent_levels <- levels(factor(content_DTM.uncl_df$sentiment))
+labels <- lapply(sent_levels, 
+                 function(x) paste(x,format(round((length((
+                content_DTM.uncl_df[content_DTM.uncl_df$sentiment ==x,])$id)/
+                     length(content_DTM.uncl_df$sentiment)*100),2),nsmall=2),"%"))
+
+sentiment_words_df <- as.data.frame(content_DTM.uncl_df %>%
+                      select(-id,-sent) %>%
+                      group_by(sentiment) %>%
+                      summarise_all(sum))
+
+
+
+
+rownames(sentiment_words_df)  <- labels
+sentiment_words_df <- sentiment_words_df %>%
+                      select(-sentiment)
+
+word_sentiment_mat <- t(as.matrix(sentiment_words_df))
+
+
+```
+
+### Sentiment Word cloud for bi and tri grams
+
+```{r sentiment word cloud}
+
+
+# comparison word cloud
+comparison.cloud(word_sentiment_mat, 
+                  max.words=100,
+                 rot.per = 0.15,
+                 colors = brewer.pal(3, "Dark2"),
+                  scale = c(2.5,.25), 
+                 random.order = FALSE, 
+                 title.size = 1.5)
+
+```
+
 # Topic summarization
 
 ## Summarization for each Topic
@@ -1302,7 +1371,7 @@ for(top_id in unique(comp_topicDF$topic_id))
   temp_df4sum <- comp_topicDF %>%
     filter(topic_id == top_id)
   temp_sum_df <- lexRank(temp_df4sum[,"complaint_summary"],
-                         threshold = 0.3,
+                         threshold = 0.18,
                          n=ceiling(nrow(temp_df4sum) * 0.1),
                          Verbose = FALSE)
   
