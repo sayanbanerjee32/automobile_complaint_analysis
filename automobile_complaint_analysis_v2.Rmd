@@ -694,17 +694,25 @@ create_group_plots <- function(df,target,var_list,top_num = c(5,3))
 
 }
 
-genericSummary_revised <- function (text, k, 
-                            split = "\\.|!|\\?", 
+genericSummary_revised <- function (text, k_min,
+                                    k_max_pct = 0.1,
+                            split = "\\.|!|\\?|\\\n{2,}", 
                             min = 5, 
                             breakdown = FALSE,...) 
 {
     sentences <- unlist(strsplit(text, split = split, fixed = F))
+    sentences <- gsub("\\\n"," ",sentences)
     if (breakdown == TRUE) {
         sentences <- breakdown(sentences)
     }
-    
-    sentences <- sentences[stri_count(sentences,regex="\\S+") > min]
+    k <- k_min
+    if (ceiling(length(sentences) *  k_max_pct) > k_min)
+    {
+      k <- ceiling(length(sentences) *  k_max_pct)
+    }
+    sentences <- sentences[(stri_count(sentences,regex="\\S+") > min) &
+                             (nchar(sentences) > 
+                             (stri_count(sentences,regex="\\S+") * 2))]
     if(length(sentences) > k)
     {
       td = tempfile()
@@ -771,13 +779,13 @@ comp_sum <- c()
 
 for(i in 1:nrow(compDF))
 {
-  #print(i)
+  print(i)
   
   comp_sum <- c(comp_sum,paste(unique(genericSummary_revised(
                                       compDF[i,"Complaint.Text"],
-                                                k=2,
+                                                k_min=2,
                                                 min=5)),
-                                               collapse="  \n"))
+                                               collapse=".  \n"))
   
   # if(length(gregexpr('[[:alnum:] ]{5}[.!?]', 
   #                    compDF[i,"Complaint.Text"])[[1]]) > 2)
@@ -1304,6 +1312,8 @@ create_group_plots(comp_topicDF,
 
 ## Sentiment Word cloud
 
+### Data Preparation
+
 ```{r sentiment word cloud data preparation}
 
 content_DTM.uncl_df <- as.data.frame.matrix(content_DTM.uncl)
@@ -1353,7 +1363,7 @@ word_sentiment_mat <- t(as.matrix(sentiment_words_df))
 comparison.cloud(word_sentiment_mat, 
                   max.words=100,
                  rot.per = 0.15,
-                 colors = brewer.pal(3, "Dark2"),
+                 colors = c("red","blue","green"),
                   scale = c(2.5,.25), 
                  random.order = FALSE, 
                  title.size = 1.5)
@@ -1362,7 +1372,7 @@ comparison.cloud(word_sentiment_mat,
 
 # Topic summarization
 
-## Summarization for each Topic
+## Summarization for each Topic using LexRank
 ```{r summ}
 
 topic_summary_DF <- data.frame()
@@ -1377,7 +1387,7 @@ for(top_id in unique(comp_topicDF$topic_id))
   
   topic_summary <- c(topic_id=top_id,
                      topic_summary_txt = paste(unique(temp_sum_df[,"sentence"]),
-                                               collapse="  \n"))
+                                               collapse=".  \n"))
   topic_summary_DF <- rbind(topic_summary_DF,topic_summary,
                             stringsAsFactors =FALSE)
   names(topic_summary_DF) <- c("topic_id","topic_summary_txt")
@@ -1392,6 +1402,40 @@ print(xtable(topic_summary_DF),
 
 ```
   
+## Summarization for each Topic using LSA
+
+```{r summ lsa}
+
+topic_lsa_summary_DF <- data.frame()
+
+for(top_id in unique(comp_topicDF$topic_id))
+{
+  temp_df4sum <- comp_topicDF %>%
+    filter(topic_id == top_id)
+  
+  topic_lsa_summary_txt <- paste(unique(genericSummary_revised(paste(
+                                      temp_df4sum[,"complaint_summary"],collapse=".  \n"),
+                                                k_min=ceiling(nrow(temp_df4sum) * 0.1),
+                                                min=5)),
+                                               collapse=".  \n")
+
+  topic_lsa_summary <- c(topic_id=top_id,
+                     topic_summary_txt = topic_lsa_summary_txt)
+  
+  topic_lsa_summary_DF <- rbind(topic_lsa_summary_DF,topic_lsa_summary,
+                            stringsAsFactors =FALSE)
+  names(topic_lsa_summary_DF) <- c("topic_id","topic_summary_txt")
+}
+
+topic_lsa_summary_DF$topic_id <- as.numeric(topic_lsa_summary_DF$topic_id) 
+topic_lsa_summary_DF <- inner_join(topicLabel,topic_lsa_summary_DF,
+                               by = "topic_id")
+
+print(xtable(topic_lsa_summary_DF),
+      type="html",include.rownames = FALSE)
+
+```
+
 
 # Output file  
 
