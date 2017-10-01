@@ -779,7 +779,7 @@ comp_sum <- c()
 
 for(i in 1:nrow(compDF))
 {
-  print(i)
+  #print(i)
   
   comp_sum <- c(comp_sum,paste(unique(genericSummary_revised(
                                       compDF[i,"Complaint.Text"],
@@ -1252,6 +1252,7 @@ comp_topicDF <- as.data.frame(comp_topicDF %>%
 
 ```{r syushet sentiment}
 
+summary_sent_syuzhet <- summary(sentiment_syuzhet)
 
 create_group_plots(comp_topicDF,
                    "sentiment_syuzhet",
@@ -1265,6 +1266,7 @@ create_group_plots(comp_topicDF,
 
 ```{r bing sentiment}
 
+summary_sent_bing <- summary(sentiment_bing)
 
 create_group_plots(comp_topicDF,
                    "sentiment_bing",
@@ -1277,6 +1279,7 @@ create_group_plots(comp_topicDF,
 
 ```{r afinn sentiment}
 
+summary_sent_afinn <- summary(sentiment_afinn)
 
 create_group_plots(comp_topicDF,
                    "sentiment_afinn",
@@ -1290,6 +1293,7 @@ create_group_plots(comp_topicDF,
 
 ```{r nrc sentiment}
 
+summary_sent_nrc <- summary(sentiment_nrc)
 
 create_group_plots(comp_topicDF,
                    "sentiment_nrc",
@@ -1302,6 +1306,7 @@ create_group_plots(comp_topicDF,
   
 ```{r averaged sentiment}
 
+summary_sent_avg <- summary(comp_topicDF$sentiment_averaged)
 
 create_group_plots(comp_topicDF,
                    "sentiment_averaged",
@@ -1309,6 +1314,67 @@ create_group_plots(comp_topicDF,
                    10)
 
 ```
+
+
+## Statistics of sentiment scores
+
+```{r stat sentiment scores summary}
+
+summary_sent <- rbind.data.frame(summary_sent_syuzhet,
+                      summary_sent_bing,
+                      summary_sent_afinn,
+                      summary_sent_nrc,
+                      summary_sent_avg)
+
+names(summary_sent) <- names(summary(sentiment_syuzhet))
+rownames(summary_sent) <- c("syuzhet","bing","afinn","nrc","average")
+
+print(xtable(summary_sent),
+      type="html",include.rownames = TRUE)
+
+```
+
+## Are sentiments scrores different from each other?
+
+```{r sentiment scores diff}
+
+score_test_df <- cbind.data.frame(score=sentiment_syuzhet,
+                                  method="syuzhet",
+                                  stringsAsFactors = FALSE)
+
+score_test_df <- rbind(score_test_df,cbind.data.frame(score=sentiment_afinn,
+                                                      method = "afinn",
+                                  stringsAsFactors = FALSE))
+
+score_test_df <- rbind(score_test_df,cbind.data.frame(score=sentiment_bing,
+                                                      method="bing",
+                                  stringsAsFactors = FALSE))
+
+score_test_df <- rbind(score_test_df,cbind.data.frame(score=sentiment_nrc,
+                                                      method="nrc",
+                                  stringsAsFactors = FALSE))
+
+score_test_df <- rbind(score_test_df,cbind.data.frame(
+                                  score=comp_topicDF$sentiment_averaged,
+                                                      method="average",
+                                  stringsAsFactors = FALSE))
+
+score_test_df$method <- as.factor(score_test_df$method)
+
+a1 <- aov(score_test_df$score ~ score_test_df$method)
+
+#plot(a1)
+
+posthoc <- TukeyHSD(x=a1, 'score_test_df$method', conf.level=0.95)
+
+posthoc_df <- as.data.frame(posthoc$`score_test_df$method`)
+
+
+print(xtable(posthoc_df),
+      type="html",include.rownames = TRUE)
+
+```
+
 
 ## Sentiment Word cloud
 
