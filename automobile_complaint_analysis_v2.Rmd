@@ -693,8 +693,7 @@ create_group_plots <- function(df,target,var_list,top_num = c(5,3))
   print(group_box)
 
 }
-
-genericSummary_revised <- function (text, k_min,
+genericSummary_LSA <- function (text, k_min,
                                     k_max_pct = 0.1,
                             split = "\\.|!|\\?|\\\n{2,}", 
                             min = 5, 
@@ -738,10 +737,68 @@ genericSummary_revised <- function (text, k_min,
       snum <- gsub(snum, pattern = "[[:punct:]]", replacement = "")
       snum <- as.integer(snum)
       summary.sentences <- sentences[snum]
+      is_summarised <- "Y"
     }else{
       summary.sentences <- sentences 
+      is_summarised <- "N"
     }
-    summary.sentences
+    summ.text <- paste(unique(summary.sentences),collapse=".  \n")
+    com_pct <- round(((stri_count(text,regex="\\S+") - 
+                         stri_count(summ.text,regex="\\S+")) /
+                stri_count(text,regex="\\S+")) * 100,digits = 2)
+    list(summary.text= summ.text,
+         is_summarised = is_summarised,
+         compression_pct = com_pct)
+    
+}
+
+
+lexrank_summary <- function(text,
+                            split = "\\.|!|\\?|\\\n{2,}",
+                            min_sum_len,
+                            max_sum_pct = 0.1,
+                            min_word_sentence = 3)
+{
+  sentences <- unlist(strsplit(as.character(text), 
+                               split = split, fixed = F))
+  
+  
+  if (ceiling(length(sentences) *  max_sum_pct) > min_sum_len)
+  {
+    min_sum_len <- ceiling(length(sentences) *  max_sum_pct)
+  }
+  
+  sentences <- sentences[(stri_count(sentences,regex="\\S+") > min_word_sentence) &
+                           (nchar(sentences) > 
+                           (stri_count(sentences,regex="\\S+") * 2))]
+  summ_list <- tryCatch({
+                          list(summary.text = paste(
+                                unique(
+                                  lexRank(text,
+                                   threshold = 0.2,
+                                   n=min_sum_len,
+                                   sentencesAsDocs = TRUE,
+                                   Verbose = FALSE)$sentence),
+                                collapse=".  \n"),
+                               is_summarised = "Y"
+                          )
+                        },
+                          error = function(e) {
+                            return(
+                            list(summary.text = paste(sentences,collapse=".  \n"),
+                                 is_summarised = "N")
+                              )
+                            }
+                      )
+  
+    com_pct <- round(((stri_count(text,regex="\\S+") - 
+                         stri_count(summ_list$summary.text,regex="\\S+")) /
+                stri_count(text,regex="\\S+")) * 100,digits = 2)
+  
+    summ_list$compression_pct <- com_pct
+    
+    return(summ_list)
+  
 }
 ```
 
@@ -767,42 +824,28 @@ print(xtable(strtable(compDF)),
   
 ```{r summ comp}
 
-comp_sum <- c()
-# for(i in 1:nrow(comp_topicDF))
-# {
-#     if(nsentence(comp_topicDF[i,"Complaint.Text"]) > 2)
-#     {
-#       comp_sum <- c(comp_sum,paste(genericSummary(comp_topicDF[i,"Complaint.Text"],2),
-#                                                  collapse="  \n"))
-#     } else {
-#       comp_sum <- c(comp_sum,comp_topicDF[i,"Complaint.Text"])
-#     }
-# }
+comp_sum_df <- data.frame()
 
 for(i in 1:nrow(compDF))
 {
   #print(i)
   
-  comp_sum <- c(comp_sum,paste(unique(genericSummary_revised(
-                                      compDF[i,"Complaint.Text"],
+   comp_sum <- genericSummary_LSA(compDF[i,"Complaint.Text"],
                                                 k_min=2,
-                                                min=5)),
-                                               collapse=".  \n"))
+                                                min=5)
   
-  # if(length(gregexpr('[[:alnum:] ]{5}[.!?]', 
-  #                    compDF[i,"Complaint.Text"])[[1]]) > 2)
-  # {
-  #   comp_sum <- c(comp_sum,paste(genericSummary(gsub("[\\?|!]",".",
-  #                                       compDF[i,"Complaint.Text"]),
-  #                                               k=2,
-  #                                               min=10),
-  #                                              collapse="  \n"))
-  # } else {
-  #   comp_sum <- c(comp_sum,compDF[i,"Complaint.Text"])
-  # }
+  complaint_summary_LSA <- comp_sum$summary.text
+  LSA_summarised <- comp_sum$is_summarised
+  LSA_compression_pct <- comp_sum$compression_pct
+  comp_sum_df <-  rbind.data.frame(comp_sum_df,c(complaint_summary_LSA,
+                                                 LSA_summarised,
+                                                 LSA_compression_pct),
+                                   stringsAsFactors = FALSE)
+  
+  
 }
-
-compDF <- cbind.data.frame(compDF,complaint_summary = comp_sum,
+names(comp_sum_df) <- c("complaint_summary_LSA","LSA_summarised","LSA_compression_pct")
+compDF <- cbind.data.frame(compDF,comp_sum_df,
                                  stringsAsFactors = FALSE)
 
 ```
@@ -810,41 +853,32 @@ compDF <- cbind.data.frame(compDF,complaint_summary = comp_sum,
 ### LexRank summarisation  
   
 ```{r lexrank summ}
-comp_sum_lex <- c()
+
+comp_sum_lex_df <- data.frame()
 
 for(i in 1:nrow(compDF))
 {
  
-  sentences <- unlist(strsplit(compDF[i,"Complaint.Text"], 
-                               split = "\\.|!|\\?|\\\n{2,}", fixed = F))
-  min_sum_len <- 2
-  max_sum_pct <- 0.1
-  if (ceiling(length(sentences) *  max_sum_pct) > min_sum_len)
-  {
-    min_sum_len <- ceiling(length(sentences) *  max_sum_pct)
-  }
-  min_word_sentence <- 5
-  sentences <- sentences[(stri_count(sentences,regex="\\S+") > min_word_sentence) &
-                           (nchar(sentences) > 
-                           (stri_count(sentences,regex="\\S+") * 2))]
-  comp_sum <- tryCatch(paste(
-                            unique(
-                              lexRank(compDF[i,"Complaint.Text"],
-                               threshold = 0.2,
-                               n=min_sum_len,
-                               sentencesAsDocs = TRUE,
-                               Verbose = FALSE)$sentence),
-                            collapse=".  \n"),
-                          error = function(e) {return(
-                            paste(sentences,collapse=".  \n")
-                          )}
-                      )
+  comp_sum <- lexrank_summary(compDF[i,"Complaint.Text"],
+                            min_sum_len = 2,
+                            min_word_sentence = 5)
   
-  comp_sum_lex <- c(comp_sum_lex,comp_sum)
+  complaint_summary_lexrank <- comp_sum$summary.text
+  lexrank_summarised <- comp_sum$is_summarised
+  lexrank_compression_pct <- comp_sum$compression_pct
+  comp_sum_lex_df <-  rbind.data.frame(comp_sum_lex_df,c(complaint_summary_lexrank,
+                                                 lexrank_summarised,
+                                                 lexrank_compression_pct),
+                                   stringsAsFactors = FALSE)
+  
 }
+names(comp_sum_lex_df) <- c("complaint_summary_lexrank",
+                            "lexrank_summarised",
+                            "lexrank_compression_pct")
 
-compDF <- cbind.data.frame(compDF,complaint_summary_lexrank = comp_sum_lex,
+compDF <- cbind.data.frame(compDF,comp_sum_lex_df,
                                  stringsAsFactors = FALSE)
+
 
 ```
 
@@ -1377,7 +1411,7 @@ print(xtable(summary_sent),
 
 ```
 
-## Are sentiments scrores different from each other?
+## Are sentiments scores different from each other?
 
 ```{r sentiment scores diff}
 
@@ -1522,7 +1556,7 @@ for(top_id in unique(comp_topicDF$topic_id))
   temp_df4sum <- comp_topicDF %>%
     filter(topic_id == top_id)
   
-  topic_lsa_summary_txt <- paste(unique(genericSummary_revised(paste(
+  topic_lsa_summary_txt <- paste(unique(genericSummary_LSA(paste(
                                       temp_df4sum[,"complaint_summary"],collapse=".  \n"),
                                                 k_min=ceiling(nrow(temp_df4sum) * 0.1),
                                                 min=5)),
