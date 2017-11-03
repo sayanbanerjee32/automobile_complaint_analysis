@@ -693,68 +693,79 @@ create_group_plots <- function(df,target,var_list,top_num = c(5,3))
   print(group_box)
 
 }
+
+## Summarisation Functions
+
 genericSummary_LSA <- function (text, k_min,
-                                    k_max_pct = 0.1,
-                            split = "\\.|!|\\?|\\\n{2,}", 
-                            min = 5, 
-                            breakdown = FALSE,...) 
+                                k_max_pct = 0.1,
+                                split = "\\. |! |\\? |\\\n{2,}", 
+                                min = 5, 
+                                breakdown = FALSE,...) 
 {
-    sentences <- unlist(strsplit(text, split = split, fixed = F))
-    sentences <- gsub("\\\n"," ",sentences)
-    if (breakdown == TRUE) {
-        sentences <- breakdown(sentences)
+  sentences <- unlist(strsplit(text, split = split, fixed = F))
+  sentences <- gsub("\\\n"," ",sentences)
+  if (breakdown == TRUE) {
+    sentences <- breakdown(sentences)
+  }
+  k <- k_min
+  if (ceiling(length(sentences) *  k_max_pct) > k_min)
+  {
+    k <- ceiling(length(sentences) *  k_max_pct)
+  }
+  sentencesDF <- cbind.data.frame(snum = which((stri_count(sentences,
+                                                           regex="\\S+") > min) &
+                                  (nchar(sentences) > 
+                                     (stri_count(sentences,regex="\\S+") * 2))),
+                    sentences = sentences[(stri_count(sentences,regex="\\S+") > min) &
+                                           (nchar(sentences) > 
+                                              (stri_count(sentences,regex="\\S+") * 2))],
+                                stringsAsFactors = F)
+  if(nrow(sentencesDF) > k)
+  {
+    td = tempfile()
+    dir.create(td)
+    for (i in 1:nrow(sentencesDF)) {
+      docname <- paste("sentence", sentencesDF[i,"snum"], ".txt", sep = "")
+      write(sentencesDF[i,"sentences"], file = paste(td, docname, sep = "/"))
     }
-    k <- k_min
-    if (ceiling(length(sentences) *  k_max_pct) > k_min)
-    {
-      k <- ceiling(length(sentences) *  k_max_pct)
+    A <- textmatrix(td, ...)
+    rownames <- rownames(A)
+    colnames <- colnames(A)
+    A <- matrix(A, nrow = nrow(A), ncol = ncol(A))
+    rownames(A) <- rownames
+    colnames(A) <- colnames
+    unlink(td, T, T)
+    Vt <- lsa(A, dims = nrow(sentencesDF))$dk
+    snum <- vector(length = k)
+    for (i in 1:k) {
+      snum[i] <- names(Vt[, i][abs(Vt[, i]) == max(abs(Vt[, 
+                                                          i]))])
     }
-    sentences <- sentences[(stri_count(sentences,regex="\\S+") > min) &
-                             (nchar(sentences) > 
-                             (stri_count(sentences,regex="\\S+") * 2))]
-    if(length(sentences) > k)
-    {
-      td = tempfile()
-      dir.create(td)
-      for (i in 1:length(sentences)) {
-          docname <- paste("sentence", i, ".txt", sep = "")
-          write(sentences[i], file = paste(td, docname, sep = "/"))
-      }
-      A <- textmatrix(td, ...)
-      rownames <- rownames(A)
-      colnames <- colnames(A)
-      A <- matrix(A, nrow = nrow(A), ncol = ncol(A))
-      rownames(A) <- rownames
-      colnames(A) <- colnames
-      unlink(td, T, T)
-      Vt <- lsa(A, dims = length(sentences))$dk
-      snum <- vector(length = k)
-      for (i in 1:k) {
-          snum[i] <- names(Vt[, i][abs(Vt[, i]) == max(abs(Vt[, 
-              i]))])
-      }
-      snum <- gsub(snum, pattern = "[[:alpha:]]", replacement = "")
-      snum <- gsub(snum, pattern = "[[:punct:]]", replacement = "")
-      snum <- as.integer(snum)
-      summary.sentences <- sentences[snum]
-      is_summarised <- "Y"
-    }else{
-      summary.sentences <- sentences 
-      is_summarised <- "N"
-    }
-    summ.text <- paste(unique(summary.sentences),collapse=".  \n")
-    com_pct <- round(((stri_count(text,regex="\\S+") - 
-                         stri_count(summ.text,regex="\\S+")) /
-                stri_count(text,regex="\\S+")) * 100,digits = 2)
-    list(summary.text= summ.text,
-         is_summarised = is_summarised,
-         compression_pct = com_pct)
-    
+    snum <- gsub(snum, pattern = "[[:alpha:]]", replacement = "")
+    snum <- gsub(snum, pattern = "[[:punct:]]", replacement = "")
+    snum <- as.integer(snum)
+    summary.sentencesDF <- sentencesDF[sentencesDF$snum %in% snum,]
+    names(summary.sentencesDF) <- c("snum", "summary.sentences")
+    is_summarised <- "Y"
+  }else{
+    summary.sentencesDF <- sentencesDF
+    names(summary.sentencesDF) <- c("snum", "summary.sentences")
+    is_summarised <- "N"
+  }
+  summ.textDF <- unique(summary.sentencesDF)
+  com_pct <- round(((stri_count(text,regex="\\S+") - 
+                       stri_count(paste(summ.textDF$summary.sentences,collapse = ".  \n"),
+                                  regex="\\S+")) /
+                      stri_count(text,regex="\\S+")) * 100,digits = 2)
+  list(summary.text= summ.textDF,
+       is_summarised = is_summarised,
+       compression_pct = com_pct)
+  
 }
 
 
 lexrank_summary <- function(text,
-                            split = "\\.|!|\\?|\\\n{2,}",
+                            split = "\\. |! |\\? |\\\n{2,}",
                             min_sum_len,
                             max_sum_pct = 0.1,
                             min_word_sentence = 3)
@@ -768,38 +779,56 @@ lexrank_summary <- function(text,
     min_sum_len <- ceiling(length(sentences) *  max_sum_pct)
   }
   
-  sentences <- sentences[(stri_count(sentences,regex="\\S+") > min_word_sentence) &
-                           (nchar(sentences) > 
-                           (stri_count(sentences,regex="\\S+") * 2))]
+  sentencesDF <- cbind.data.frame(snum = which((stri_count(sentences,
+                                              regex="\\S+") > min_word_sentence) &
+                                                 (nchar(sentences) > 
+                                                    (stri_count(sentences,
+                                                                regex="\\S+") * 2))),
+                                  sentences = sentences[(stri_count(sentences,
+                                                  regex="\\S+") > min_word_sentence) &
+                                                        (nchar(sentences) > 
+                                                             (stri_count(sentences,
+                                                              regex="\\S+") * 2))],
+                                  stringsAsFactors = F)
+  
   summ_list <- tryCatch({
-                          list(summary.text = paste(
-                                unique(
-                                  lexRank(text,
-                                   threshold = 0.2,
-                                   n=min_sum_len,
-                                   sentencesAsDocs = TRUE,
-                                   Verbose = FALSE)$sentence),
-                                collapse=".  \n"),
-                               is_summarised = "Y"
-                          )
-                        },
-                          error = function(e) {
-                            return(
-                            list(summary.text = paste(sentences,collapse=".  \n"),
-                                 is_summarised = "N")
-                              )
-                            }
-                      )
+              temp.textDF <- lexRank(text,
+                                     threshold = 0.2,
+                                     n=min_sum_len,
+                                     sentencesAsDocs = TRUE,
+                                     Verbose = FALSE)
+              summ.textDF <- cbind.data.frame(snum = as.numeric(str_split_fixed(
+                                          temp.textDF$sentenceId,"_",2)[,2]),
+                                              summary.sentences = temp.textDF$sentence,
+                                              stringsAsFactors = F)
+              
+              list(summary.text = unique(summ.textDF),
+                is_summarised = "Y"
+              )
+            },
+            error = function(e) {
+              summary.sentencesDF <- sentencesDF
+              names(summary.sentencesDF) <- c("snum", "summary.sentences")
+              return(
+                list(summary.text = summary.sentencesDF,
+                     is_summarised = "N")
+              )
+            }
+            )
   
-    com_pct <- round(((stri_count(text,regex="\\S+") - 
-                         stri_count(summ_list$summary.text,regex="\\S+")) /
-                stri_count(text,regex="\\S+")) * 100,digits = 2)
+  com_pct <- round(((stri_count(text,regex="\\S+") - 
+                       stri_count(paste(summ_list$summary.text$summary.sentences,
+                                        collapse = ".  \n"),
+                                  regex="\\S+")) /
+                      stri_count(text,regex="\\S+")) * 100,digits = 2)
   
-    summ_list$compression_pct <- com_pct
-    
-    return(summ_list)
+  summ_list$compression_pct <- com_pct
+  
+  return(summ_list)
   
 }
+
+
 ```
 
 
@@ -820,75 +849,120 @@ print(xtable(strtable(compDF)),
 
 ## Summarization for each complaint  
   
-### LSA summarisation  
-  
-```{r summ comp}
+```{r final summary}
 
-comp_sum_df <- data.frame()
+
+comp_sum_lsa_df <- data.frame()
+comp_sum_lex_df <- data.frame()
+final_summary <- c()
+final_summary_pct <- c()
 
 for(i in 1:nrow(compDF))
 {
   #print(i)
   
-   comp_sum <- genericSummary_LSA(compDF[i,"Complaint.Text"],
-                                                k_min=2,
-                                                min=5)
+  comp_sum_lsa <- genericSummary_LSA(compDF[i,"Complaint.Text"],
+                                     k_min=2,
+                                     min=5)
   
-  complaint_summary_LSA <- comp_sum$summary.text
-  LSA_summarised <- comp_sum$is_summarised
-  LSA_compression_pct <- comp_sum$compression_pct
-  comp_sum_df <-  rbind.data.frame(comp_sum_df,c(complaint_summary_LSA,
-                                                 LSA_summarised,
-                                                 LSA_compression_pct),
-                                   stringsAsFactors = FALSE)
+  complaint_summary_LSA_DF <- comp_sum_lsa$summary.text
+  complaint_summary_LSA_DF <- complaint_summary_LSA_DF[
+              order(complaint_summary_LSA_DF$snum),]
+  complaint_summary_LSA <- paste(complaint_summary_LSA_DF$summary.sentences,
+                                 collapse = ".  \n")
+  LSA_summarised <- comp_sum_lsa$is_summarised
+  LSA_compression_pct <- comp_sum_lsa$compression_pct
+  comp_sum_lsa_df <-  rbind.data.frame(comp_sum_lsa_df,c(complaint_summary_LSA,
+                                                         LSA_summarised,
+                                                         LSA_compression_pct),
+                                       stringsAsFactors = FALSE)
+  
+  comp_sum_lex <- lexrank_summary(compDF[i,"Complaint.Text"],
+                                  min_sum_len = 2,
+                                  min_word_sentence = 5)
   
   
-}
-names(comp_sum_df) <- c("complaint_summary_LSA","LSA_summarised","LSA_compression_pct")
-compDF <- cbind.data.frame(compDF,comp_sum_df,
-                                 stringsAsFactors = FALSE)
-
-```
-  
-### LexRank summarisation  
-  
-```{r lexrank summ}
-
-comp_sum_lex_df <- data.frame()
-
-for(i in 1:nrow(compDF))
-{
- 
-  comp_sum <- lexrank_summary(compDF[i,"Complaint.Text"],
-                            min_sum_len = 2,
-                            min_word_sentence = 5)
-  
-  complaint_summary_lexrank <- comp_sum$summary.text
-  lexrank_summarised <- comp_sum$is_summarised
-  lexrank_compression_pct <- comp_sum$compression_pct
+  complaint_summary_lexrank_DF <- comp_sum_lex$summary.text
+  complaint_summary_lexrank_DF <- complaint_summary_lexrank_DF[
+                        order(complaint_summary_lexrank_DF$snum),]
+  complaint_summary_lexrank <- paste(complaint_summary_lexrank_DF$summary.sentences,
+                                     collapse = ".  \n")
+  lexrank_summarised <- comp_sum_lex$is_summarised
+  lexrank_compression_pct <- comp_sum_lex$compression_pct
   comp_sum_lex_df <-  rbind.data.frame(comp_sum_lex_df,c(complaint_summary_lexrank,
-                                                 lexrank_summarised,
-                                                 lexrank_compression_pct),
-                                   stringsAsFactors = FALSE)
+                                                         lexrank_summarised,
+                                                         lexrank_compression_pct),
+                                       stringsAsFactors = FALSE)
+  
+  if(LSA_summarised == "Y" & lexrank_summarised == "Y")
+  {
+    final_summaryDF <- rbind.data.frame(complaint_summary_LSA_DF,
+                                        complaint_summary_lexrank_DF,
+                                        stringsAsFactors = F) 
+    
+    
+    final_summaryDF <- final_summaryDF[!duplicated(final_summaryDF$snum), ]
+    final_summaryDF$summary.sentences <- trimws(gsub("\\. |\\\n",
+                                        " ",final_summaryDF$summary.sentences))
+    final_summaryDF <- final_summaryDF[order(final_summaryDF$snum),]
+      
+    final_summary <- c(final_summary,
+                       paste(final_summaryDF$summary.sentences,
+                             collapse = ".  \n"))
+    
+    final_summary_pct <- c(final_summary_pct,
+                           round(((stri_count(compDF[i,"Complaint.Text"],
+                                                                regex="\\S+") - 
+                                                       stri_count(final_summary[i],
+                                                                  regex="\\S+")) /
+                                            stri_count(compDF[i,"Complaint.Text"],
+                                                                 regex="\\S+")) * 100,
+                                                   digits = 2))
+    
+  } else if (LSA_summarised == "Y")
+  {
+    final_summary <- c(final_summary,complaint_summary_LSA)
+    final_summary_pct <- c(final_summary_pct,LSA_compression_pct)
+  } else if (lexrank_summarised == "Y")
+  {
+    final_summary <- c(final_summary,complaint_summary_lexrank)
+    final_summary_pct <- c(final_summary_pct,lexrank_compression_pct)
+  } else {
+    final_summary <- c(final_summary,"No Summary possible")
+    final_summary_pct <- c(final_summary_pct,0)
+  }
+  
+  
   
 }
+names(comp_sum_lsa_df) <- c("complaint_summary_LSA",
+                            "LSA_summarised",
+                            "LSA_compression_pct")
+
 names(comp_sum_lex_df) <- c("complaint_summary_lexrank",
                             "lexrank_summarised",
                             "lexrank_compression_pct")
 
-compDF <- cbind.data.frame(compDF,comp_sum_lex_df,
-                                 stringsAsFactors = FALSE)
+# test <- cbind.data.frame(comp_sum_lsa_df,comp_sum_lex_df,
+#                         final_summary = final_summary,
+#                         final_compression_pct = final_summary_pct,
+#                         stringsAsFactors = FALSE)
+
+compDF <- cbind.data.frame(compDF,comp_sum_lsa_df,comp_sum_lex_df,
+                           final_summary = final_summary,
+                           final_compression_pct = final_summary_pct,
+                           stringsAsFactors = FALSE)
+
 
 
 ```
-
   
 ### Interim file  
   
 ```{r write_interim_file, cache=FALSE}
 
 interim_directory <- "D:/Data Science/Automobile complaint analysis/processed_data"
-interim_file = paste(interim_directory,"/automobile_customer_complain_interim_",
+interim_file = paste(interim_directory,"/automobile_customer_complaint_summary_",
                     format(Sys.Date(), "%Y%m%d"),".csv",sep="")
 
 write.csv(compDF,interim_file,row.names=FALSE)
