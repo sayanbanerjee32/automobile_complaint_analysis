@@ -26,6 +26,9 @@ library(openNLP)
 library(lexRankr)
 library(LSAfun)
 
+library(tidyverse)      # data manipulation & plotting
+library(tidytext)       # provides additional text mining functions
+
 library(RWeka)
 library(cluster)
 library(dendextend)
@@ -36,6 +39,7 @@ library(topicmodels)
 library(Rmpfr)
 
 library(dplyr)
+library(reshape2)
 library(lazyeval)
 library(stringi)
 library(stringr)
@@ -1587,7 +1591,45 @@ comparison.cloud(word_sentiment_mat,
 
 ```
 
-# Topic summarization
+## Sentiments - a different way
+
+
+```{r sentiment sentence}
+comp_sentences <- tibble(index = compDF$S.No.,
+                        text = compDF$Complaint.Text) %>% 
+  unnest_tokens(sentence, text, token = "sentences")
+
+comp_sentiment <- comp_sentences %>%
+        group_by(index) %>%
+        mutate(sentence_num = 1:n()) %>%
+        unnest_tokens(word, sentence) %>%
+        inner_join(get_sentiments("afinn")) %>%
+        group_by(index,sentence_num) %>%
+        summarise(sentiment = sum(score, na.rm = TRUE)) %>%
+        mutate(sentiment_tag = ifelse(sentiment > 0,"positive",
+                                    ifelse(sentiment < 0, "negative","neutral")))
+
+sentence_senti_cnt <- dcast(comp_sentiment, index  ~ sentiment_tag,
+                                        fun.aggregate=length,
+                                        value.var = "sentiment_tag")
+
+comp_sentence_sentimenttag_pct <- cbind(sentence_senti_cnt[,1],
+                                        round((sentence_senti_cnt[,-1] * 100)/
+                                          rowSums(sentence_senti_cnt[,-1]),2))
+
+
+colnames(comp_sentence_sentimenttag_pct) <- c("S_No",
+                                              "negative_sentences_pct",
+                                              "neutral_sentences_pct",
+                                              "positive_sentences_pct")
+
+comp_topicDF <- comp_topicDF %>%
+                inner_join(comp_sentence_sentimenttag_pct,
+                           by = c("S.No." = "S_No"))
+
+```
+
+# Topic summarization  
 
 ## Summarization for each Topic using LexRank
 ```{r summ}
